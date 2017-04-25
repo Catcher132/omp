@@ -16,6 +16,7 @@ import collections
 from itertools import *
 import inspect
 import copy
+import time
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -27,9 +28,30 @@ import pdb
 def sin_evaluate(x, freq):
     # nb we allow both freq and x to be np arrays
     # returns an array of size len(x) * len(freq)
+    return np.sin(math.pi * np.outer(x, freq)) * math.sqrt(2.0) / (math.pi * freq)
+
+def sin_evaluate_old(x, freq):
+    # nb we allow both freq and x to be np arrays
+    # returns an array of size len(x) * len(freq)
     return np.sin(math.pi * freq * x) * math.sqrt(2.0) / (math.pi * freq)
         
 def del_evaluate(x, x0):
+    # nb we allow both x0 and x to be np arrays
+    # returns an array of size len(x) * len(x0)
+    normaliser =  1. / np.sqrt((1. - x0) * x0)
+    
+    # This is now a matrix of size len(x) * len(x0)
+    choice = np.less.outer(x, x0) #np.array([x > x0ref for x0ref in x0])
+
+    lower = normaliser * np.outer(x, (1. - x0))
+    upper = normaliser * np.outer((1. - x), x0)
+    
+    if np.isscalar(choice):
+        return lower * choice + upper * (not choice)
+
+    return lower * choice + upper * (~choice)
+        
+def del_evaluate_old(x, x0):
     # nb we allow both x0 and x to be np arrays
     # returns an array of size len(x) * len(x0)
     normaliser =  1. / np.sqrt((1. - x0) * x0)
@@ -44,6 +66,7 @@ def del_evaluate(x, x0):
 
     return lower * choice + upper * (~choice)
 
+
 def dot_type(s_p, s_c, s_ft, o_p, o_c, o_ft):
     d = 0.0
     for rp, rc in zip(s_p, s_c):
@@ -56,15 +79,15 @@ def dot_element(lt, lp, lc, rt, rp, rc):
     if lt == 'H1delta':
         c = 1.0 / np.sqrt(lp * (1.0 - lp))
         if rt == 'H1sin':
-            dot += c * lc * rc * sin_evaluate(x = lp, freq = rp)
+            dot += (c[:,np.newaxis] * lc[:,np.newaxis] * rc * sin_evaluate(x = lp, freq = rp)).sum()
         elif rt == 'H1delta':
-            dot += c * lc * rc * del_evaluate(x = lp, x0 = rp)
+            dot += (c[:,np.newaxis] * lc[:,np.newaxis] * rc * del_evaluate(x = lp, x0 = rp)).sum()
     elif lt == 'H1sin':
         if rt == 'H1sin':
-            dot += lc * rc * (lp == rp).sum()
+            dot += (lc[:,np.newaxis] * rc * np.equal.outer(lp, rp)).sum()
         elif rt == 'H1delta':
             c = 1.0 / np.sqrt(rp * (1.0 - rp))
-            dot += c * lc * rc * sin_evaluate(x = rp, freq = lp)
+            dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
     return dot
 
 def dot_element_array(lt, lp, lc, rt, rp, rc):
@@ -124,20 +147,11 @@ class Vector(object):
 
     def dot(self, other):
         # To keep values *exact* we do the dot product between all the elements of the dictionary
-
         d = 0.0
         
         for s_p, s_c, s_ft in zip(self.params, self.coeffs, self.fn_types):
             for o_p, o_c, o_ft in zip(other.params, other.coeffs, other.fn_types):
-                d += dot_type(s_p, s_c, s_ft, o_p, o_c, o_ft)
-
-        #for s_n, s_ft in enumerate(self.fn_types):
-        #    for o_n, o_ft in enumerate(other.fn_types):
-        #        d += ([s_c * o_c * dot_element(s_ft, s_p, o_ft, o_p) \
-        #               for s_p, s_c in zip(self.params[s_n], self.coeffs[s_n]) \
-        #               for o_p, o_c in zip(other.params[o_n], other.coeffs[o_n])]).sum()
-
-                #d += dot_element(s_ft, self.params[s_n], o_ft, other.params[o_n])
+                d += dot_element(s_ft, s_p, s_c, o_ft, o_p, o_c)
 
         return d
    
@@ -148,13 +162,15 @@ class Vector(object):
         val = np.zeros(x.shape)
         for fn_i, fn_type in enumerate(self.fn_types):
             if fn_type == 'H1sin':
-                for p, c in zip(self.params[fn_i], self.coeffs[fn_i]):
-                    val += c * sin_evaluate(x, p)
+                val += (self.coeffs[fn_i] * sin_evaluate(x, self.params[fn_i])).sum(axis=-1)
+                #for p, c in zip(self.params[fn_i], self.coeffs[fn_i]):
+                #    val += c * sin_evaluate(x, p)
                 #for p_i in range(len(self.params[fn_i])):
                 #    val += self.coeffs[fn_i][p_i] * sin_evaluate(x, self.params[fn_i][p_i])
             if fn_type == 'H1delta':
-                for p, c in zip(self.params[fn_i], self.coeffs[fn_i]):
-                    val += c * del_evaluate(x, p)
+                val += (self.coeffs[fn_i] * del_evaluate(x, self.params[fn_i])).sum(axis=-1)
+                #for p, c in zip(self.params[fn_i], self.coeffs[fn_i]):
+                #    val += c * del_evaluate(x, p)
                 #for p_i in range(len(self.params[fn_i])):
                 #    val += self.coeffs[fn_i][p_i] * del_evaluate(x, self.params[fn_i][p_i])
         return val
@@ -633,12 +649,14 @@ class GreedyBasisConstructor(object):
         """ Different greedy methods will have their own maximising/minimising criteria, so all 
         inheritors of this class are expected to overwrite this method to suit their needs. """
 
+        proj_t = 0.0
+        dot_t = 0.0
         next_crit = np.zeros(len(self.dictionary))
         # We go through the dictionary and find the max of || f ||^2 - || P_Vn f ||^2
         for phi in self.Vn.vecs:
             phi_perp = phi - self.greedy_basis.project(phi)
-            for i in range(len(self.dictionary)):
-                next_crit[i] = phi_perp.dot(self.dictionary[i]) ** 2
+            for j in range(len(self.dictionary)):
+                next_crit[j] = phi_perp.dot(self.dictionary[j]) ** 2
                 #p_V_d[i] = self.greedy_basis.project(self.dictionary[i]).norm()
         
         ni = np.argmax(next_crit)
@@ -665,7 +683,7 @@ class GreedyBasisConstructor(object):
 
             if self.verbose:
                 print('\n\nGenerating basis from greedy algorithm with dictionary: ')
-                print('i \t || phi_i || \t\t || phi_i - P_V_(i-1) phi_i ||')
+                print('i \t || P_Vn (w - P_Wm w) ||')
 
             for i in range(1, self.m):
                 
