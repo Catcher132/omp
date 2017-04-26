@@ -262,9 +262,9 @@ class Basis(object):
             self.vecs = vecs
             self.n = len(vecs)
 
-            self.orthonormal_basis = None
-            self.G = None
-            self.U = self.S = self.V = None
+        self.orthonormal_basis = None
+        self.G = None
+        self.U = self.S = self.V = None
 
     def add_vector(self, vec):
         """ Add just one vector, so as to make the new Grammian calculation quick """
@@ -283,10 +283,9 @@ class Basis(object):
         """ To be able to do "nested" spaces, the easiest way is to implement
             subspaces such that we can draw from a larger ambient space """
         sub = type(self)(self.vecs[indices])
-
         if self.G is not None:
             sub.G = self.G[indices, indices]
-        return G
+        return sub
 
     def subspace_mask(self, mask):
         """ Here we make a subspace by using a boolean mask that needs to be of
@@ -403,7 +402,7 @@ class Basis(object):
         else:
             L = np.linalg.cholesky(self.G)
         L_inv = sp.linalg.lapack.dtrtri(L.T)[0]
-        
+         
         ortho_vecs = []
         for i in range(self.n):
             ortho_vecs.append(self.reconstruct(L_inv[:,i]))
