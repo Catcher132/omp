@@ -9,9 +9,6 @@ import pdb
 import omp
 
 N = 1e6
-dictionary = omp.make_unif_dictionary(N)
-rand_dictionary = omp.make_rand_dictionary(N)
-
 ns = [5, 10, 20, 40, 100]
 m_mult = 10
 
@@ -23,6 +20,9 @@ if len(sys.argv) > 3:
 
 m = m_mult * n
 Vn = omp.make_sin_basis(n)
+
+dictionary = omp.make_unif_dictionary(N)
+rand_dictionary = omp.make_rand_dictionary(N)
 
 gbc = omp.GreedyBasisConstructor(m, dictionary, Vn, verbose=True)
 Wm_omp = gbc.construct_basis()
