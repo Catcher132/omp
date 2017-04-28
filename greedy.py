@@ -38,7 +38,7 @@ Wm_omp = gbc.construct_basis()
 
 # Save the omp points
 omp_x = [vec.params[0][0] for vec in Wm_omp.vecs]
-np.save('omp_x_rand_{0}'.format(n), omp_x)
+np.save('omp_x_rand_{0}_{1}'.format(n, N), omp_x)
 
 Wm_omp = Wm_omp.orthonormalise()
 
