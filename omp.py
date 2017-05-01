@@ -613,8 +613,7 @@ def make_rand_dictionary(N):
     return dic
 
 class GreedyBasisConstructor(object):
-    """ This is the original greedy algorithm that minimises the Kolmogorov n-width, and a 
-        generic base-class for all other greedy algorithms """
+    """ Probably should rename this class, but it implements the Collective OMP algorithm for constructing Wm """
 
     def __init__(self, m, dictionary, Vn, verbose=False, remove=True):
         """ We need to be either given a dictionary or a point generator that produces d-dimensional points
@@ -628,21 +627,20 @@ class GreedyBasisConstructor(object):
         self.verbose = verbose
         self.remove = remove
         self.greedy_basis = None
+        self.sel_crit = np.zeros(m)
 
     def initial_choice(self):
         """ Different greedy methods will have their own maximising/minimising criteria, so all 
         inheritors of this class are expected to overwrite this method to suit their needs. """
     
-        self.norms = np.zeros(len(self.dictionary))
+        norms = np.zeros(len(self.dictionary))
         for i in range(len(self.dictionary)):
             for phi in self.Vn.vecs:
-                self.norms[i] += phi.dot(self.dictionary[i]) ** 2
+                norms[i] += phi.dot(self.dictionary[i]) ** 2
 
-        n0 = np.argmax(self.norms)
-        if self.remove:
-            self.norms = np.delete(self.norms, n0)
+        n0 = np.argmax(norms)
 
-        return n0
+        return n0, norms[n0]
 
     def next_step_choice(self, i):
         """ Different greedy methods will have their own maximising/minimising criteria, so all 
@@ -660,19 +658,16 @@ class GreedyBasisConstructor(object):
         
         ni = np.argmax(next_crit)
 
-        if self.remove:
-            self.norms = np.delete(self.norms, ni)
-
         if self.verbose:
             print('{0} : \t {1}'.format(i, next_crit[ni]))
 
-        return ni
+        return ni, next_crit[ni]
 
     def construct_basis(self):
         " The construction method should be generic enough to support all variants of the greedy algorithms """
         
         if self.greedy_basis is None:
-            n0 = self.initial_choice()
+            n0, self.sel_crit[0] = self.initial_choice()
 
             self.greedy_basis = Basis([self.dictionary[n0]])
             self.greedy_basis.make_grammian()
@@ -686,7 +681,7 @@ class GreedyBasisConstructor(object):
 
             for i in range(1, self.m):
                 
-                ni = self.next_step_choice(i)
+                ni, self.sel_crit[i] = self.next_step_choice(i)
                     
                 self.greedy_basis.add_vector(self.dictionary[ni])
                 if self.remove:
@@ -696,7 +691,59 @@ class GreedyBasisConstructor(object):
                 print('\n\nDone!')
         else:
             print('Greedy basis already computed!')
-
+        
         return self.greedy_basis
+
+
+class ParallelOMP(object):
+    """ Now the slightly simpler (to analyse) parallel OMP that looks at Vn vecs individually """
+
+    def __init__(self, m, dictionary, Vn, verbose=False, remove=True):
+        """ We need to be either given a dictionary or a point generator that produces d-dimensional points
+            from which we generate the dictionary. """
+            
+        self.dictionary = copy.copy(dictionary)
+
+        self.m = m
+        self.Vn = Vn
+
+        self.verbose = verbose
+        self.remove = remove
+        self.greedy_basis = None
+        self.sel_crit = np.zeros(m)
+
+    def initial_choice(self):
+        """ Different greedy methods will have their own maximising/minimising criteria, so all 
+        inheritors of this class are expected to overwrite this method to suit their needs. """
+    
+        norms = np.zeros(len(self.dictionary))
+        for i in range(len(self.dictionary)):
+            for phi in self.Vn.vecs:
+                norms[i] += phi.dot(self.dictionary[i]) ** 2
+
+        n0 = np.argmax(norms)
+
+        return n0, norms[n0]
+
+    def next_step_choice(self, i):
+        """ Different greedy methods will have their own maximising/minimising criteria, so all 
+        inheritors of this class are expected to overwrite this method to suit their needs. """
+
+        proj_t = 0.0
+        dot_t = 0.0
+        next_crit = np.zeros(len(self.dictionary))
+        # We go through the dictionary and find the max of || f ||^2 - || P_Vn f ||^2
+        for phi in self.Vn.vecs:
+            phi_perp = phi - self.greedy_basis.project(phi)
+            for j in range(len(self.dictionary)):
+                next_crit[j] = phi_perp.dot(self.dictionary[j]) ** 2
+                #p_V_d[i] = self.greedy_basis.project(self.dictionary[i]).norm()
+        
+        ni = np.argmax(next_crit)
+
+        if self.verbose:
+            print('{0} : \t {1}'.format(i, next_crit[ni]))
+
+        return ni, next_crit[ni]
 
 
