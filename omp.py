@@ -653,7 +653,7 @@ class GreedyBasisConstructor(object):
         for phi in self.Vn.vecs:
             phi_perp = phi - self.greedy_basis.project(phi)
             for j in range(len(self.dictionary)):
-                next_crit[j] = phi_perp.dot(self.dictionary[j]) ** 2
+                next_crit[j] += phi_perp.dot(self.dictionary[j]) ** 2
                 #p_V_d[i] = self.greedy_basis.project(self.dictionary[i]).norm()
         
         ni = np.argmax(next_crit)
