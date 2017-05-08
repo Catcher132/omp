@@ -30,11 +30,6 @@ def sin_evaluate(x, freq):
     # returns an array of size len(x) * len(freq)
     return np.sin(math.pi * np.outer(x, freq)) * math.sqrt(2.0) / (math.pi * freq)
 
-def sin_evaluate_old(x, freq):
-    # nb we allow both freq and x to be np arrays
-    # returns an array of size len(x) * len(freq)
-    return np.sin(math.pi * freq * x) * math.sqrt(2.0) / (math.pi * freq)
-        
 def del_evaluate(x, x0):
     # nb we allow both x0 and x to be np arrays
     # returns an array of size len(x) * len(x0)
@@ -50,30 +45,7 @@ def del_evaluate(x, x0):
         return lower * choice + upper * (not choice)
 
     return lower * choice + upper * (~choice)
-        
-def del_evaluate_old(x, x0):
-    # nb we allow both x0 and x to be np arrays
-    # returns an array of size len(x) * len(x0)
-    normaliser =  1. / np.sqrt((1. - x0) * x0)
-    
-    choice = x <= x0 #np.array([x > x0ref for x0ref in x0])
-
-    lower = x * (1. - x0) * normaliser
-    upper = x0 * (1. - x) * normaliser
-    
-    if np.isscalar(choice):
-        return lower * choice + upper * (not choice)
-
-    return lower * choice + upper * (~choice)
-
-
-def dot_type(s_p, s_c, s_ft, o_p, o_c, o_ft):
-    d = 0.0
-    for rp, rc in zip(s_p, s_c):
-        for lp, lc in zip(o_p, o_c):
-            d += dot_element(s_ft, rp, rc, o_ft, lp, lc)
-    return d
-
+   
 def dot_element(lt, lp, lc, rt, rp, rc):
     dot = 0.0
     if lt == 'H1delta':
@@ -88,24 +60,6 @@ def dot_element(lt, lp, lc, rt, rp, rc):
         elif rt == 'H1delta':
             c = 1.0 / np.sqrt(rp * (1.0 - rp))
             dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
-    return dot
-
-def dot_element_array(lt, lp, lc, rt, rp, rc):
-    dot = 0.0
-    if lt == 'H1delta':
-        for p in lp:
-            c = 1.0 / np.sqrt(p * (1.0 - p))
-            if rt == 'H1sin':
-                dot += (c * sin_evaluate(x = p, freq = rp)).sum()
-            elif rt == 'H1delta':
-                dot += (c * del_evaluate(x = p, x0 = rp)).sum()
-    elif lt == 'H1sin':
-        for p in lp:
-            if rt == 'H1sin':
-                dot += (p == rp).sum()
-            elif rt == 'H1delta':
-                c = 1.0 / np.sqrt(rp * (1.0 - rp))
-                dot += (c * sin_evaluate(x = rp, freq = p)).sum()
     return dot
 
 # Define a basis as a collection of elements
