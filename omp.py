@@ -45,7 +45,13 @@ def del_evaluate(x, x0):
         return lower * choice + upper * (not choice)
 
     return lower * choice + upper * (~choice)
-   
+  
+def poly_evaluate(x, k):
+    # Normaliser - yes the H1_0 norm of x (x - 1) x^k
+    normaliser = 1.0 / (8.*k*k*k + 32.*k*k + 39.*k + 13.) / ((2.*k+1.)*(2.*k+3.))
+
+    return np.outer((x**(k+1) - x**(k+2)), normaliser)
+
 def dot_element(lt, lp, lc, rt, rp, rc):
     dot = 0.0
     if lt == 'H1delta':
@@ -54,12 +60,27 @@ def dot_element(lt, lp, lc, rt, rp, rc):
             dot += (c[:,np.newaxis] * lc[:,np.newaxis] * rc * sin_evaluate(x = lp, freq = rp)).sum()
         elif rt == 'H1delta':
             dot += (c[:,np.newaxis] * lc[:,np.newaxis] * rc * del_evaluate(x = lp, x0 = rp)).sum()
+        elif rt == 'H1poly':
+            dot +=  (c[:,np.newaxis] * lc[:,np.newaxis] * rc * poly_evaluate(x = lp, freq = rp)).sum()
     elif lt == 'H1sin':
         if rt == 'H1sin':
             dot += (lc[:,np.newaxis] * rc * np.equal.outer(lp, rp)).sum()
         elif rt == 'H1delta':
             c = 1.0 / np.sqrt(rp * (1.0 - rp))
             dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
+        elif rt == 'H1poly':
+            # Uh oh
+            dot += 0.0
+    elif lt == 'H1poly':
+        if rt == 'H1sin':
+            dot += (lc[:,np.newaxis] * rc * np.equal.outer(lp, rp)).sum()
+        elif rt == 'H1delta':
+            c = 1.0 / np.sqrt(rp * (1.0 - rp))
+            dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
+        elif rt == 'H1poly':
+            # Uh oh
+            dot += 0.0
+
     return dot
 
 # Define a basis as a collection of elements
@@ -273,7 +294,7 @@ class Basis(object):
                 CG[i,j] = self.vecs[i].dot(other.vecs[j])
         return CG
 
-    def project(self, u):
+    def project(self, u, return_coeffs=False):
         
         # Either we've made the orthonormal basis...
         if self.orthonormal_basis is not None:
@@ -303,7 +324,10 @@ class Basis(object):
             # Also create it from the simple broadcast and sum (which surely should
             # be equivalent to some tensor product thing??)
             #u_p = type(self.vecs[0])((y_n * self.values_flat).sum(axis=2)) 
-        
+            
+            if return_coeffs:
+                return self.reconstruct(y_n), y_n
+
             return self.reconstruct(y_n)
 
     def reconstruct(self, c):
@@ -388,20 +412,20 @@ class BasisPair(object):
     """ This class automatically sets up the cross grammian, calculates
         beta, and can do the optimal reconstruction and calculated a favourable basis """
 
-    def __init__(self, Wm, Vn, G=None):
+    def __init__(self, Wm, Vn, CG=None):
 
-        if Vn.n > Wm.n:
-            raise Exception('Error - Wm must be of higher dimensionality than Vn')
+        #if Vn.n > Wm.n:
+        #    raise Exception('Error - Wm must be of higher dimensionality than Vn')
 
         self.Wm = Wm
         self.Vn = Vn
         self.m = Wm.n
         self.n = Vn.n
         
-        if G is not None:
-            self.G = G
+        if CG is not None:
+            self.CG = CG
         else:
-            self.G = self.cross_grammian()
+            self.CG = self.cross_grammian()
 
         self.U = self.S = self.V = None
 
@@ -413,6 +437,30 @@ class BasisPair(object):
                 CG[i,j] = self.Wm.vecs[i].dot(self.Vn.vecs[j])
         return CG
     
+    def add_Vn_vector(self, v):
+        self.Vn.add_vector(v)
+        self.n += 1
+
+        if self.CG is not None:
+            self.CG = np.pad(self.CG, ((0,1),(0,0)), 'constant')
+
+            for i in range(self.m):
+                self.CG[i, self.n-1] = self.Wm.vecs[i].dot(v)
+
+        self.U = self.V = self.S = None
+
+    def add_Wm_vector(self, w):
+        self.Wm.add_vector(w)
+        self.m += 1
+
+        if self.CG is not None:
+            self.CG = np.pad(self.CG, ((0,0),(0,1)), 'constant')
+
+            for i in range(self.m):
+                self.CG[self.m-1, i] = self.Vn.vecs[i].dot(w)
+
+        self.U = self.V = self.S = None
+
     def beta(self):
         if self.U is None or self.S is None or self.V is None:
             self.calc_svd()
@@ -421,7 +469,7 @@ class BasisPair(object):
 
     def calc_svd(self):
         if self.U is None or self.S is None or self.V is None:
-            self.U, self.S, self.V = np.linalg.svd(self.G)
+            self.U, self.S, self.V = np.linalg.svd(self.CG)
 
     def make_favorable_basis(self):
         if isinstance(self, FavorableBasisPair):
@@ -446,7 +494,7 @@ class BasisPair(object):
     def optimal_reconstruction(self, w, disp_cond=False):
         """ And here it is - the optimal reconstruction """
         try:
-            c = scipy.linalg.solve(self.G.T @ self.G, self.G.T @ w, sym_pos=True)
+            c = scipy.linalg.solve(self.CG.T @ self.CG, self.CG.T @ w, sym_pos=True)
         except np.linalg.LinAlgError as e:
             print('Warning - unstable v* calculation, m={0}, n={1} for Wm and Vn, returning 0 function'.format(self.Wm.n, self.Vn.n))
             c = np.zeros(self.Vn.n)
@@ -457,7 +505,7 @@ class BasisPair(object):
 
         # Note that W.project(v_star) = W.reconsrtuct(W.dot(v_star))
         # iff W is orthonormal...
-        cond = np.linalg.cond(self.G.T @ self.G)
+        cond = np.linalg.cond(self.CG.T @ self.CG)
         if disp_cond:
             print('Condition number of G.T * G = {0}'.format(cond))
         
@@ -473,7 +521,7 @@ class FavorableBasisPair(BasisPair):
 
         if S is not None:
             # Initialise with the Grammian equal to the singular values
-            super().__init__(Wm, Vn, G=S)
+            super().__init__(Wm, Vn, CG=S)
             self.S = S
         else:
             super().__init__(Wm, Vn)
@@ -622,10 +670,10 @@ class GreedyBasisConstructor(object):
         
         if self.greedy_basis is None:
             n0, self.sel_crit[0] = self.initial_choice()
-
+            
             self.greedy_basis = Basis([self.dictionary[n0]])
             self.greedy_basis.make_grammian()
-            
+ 
             if self.remove:
                 del self.dictionary[n0]
 
@@ -636,8 +684,9 @@ class GreedyBasisConstructor(object):
             for i in range(1, self.m):
                 
                 ni, self.sel_crit[i] = self.next_step_choice(i)
-                    
+                   
                 self.greedy_basis.add_vector(self.dictionary[ni])
+ 
                 if self.remove:
                     del self.dictionary[ni]
                        
@@ -649,55 +698,57 @@ class GreedyBasisConstructor(object):
         return self.greedy_basis
 
 
-class ParallelOMP(object):
+class WorstCaseOMP(GreedyBasisConstructor):
     """ Now the slightly simpler (to analyse) parallel OMP that looks at Vn vecs individually """
 
     def __init__(self, m, dictionary, Vn, verbose=False, remove=True):
         """ We need to be either given a dictionary or a point generator that produces d-dimensional points
             from which we generate the dictionary. """
+        super().__init__(m, dictionary, Vn, verbose, remove)
             
         self.dictionary = copy.copy(dictionary)
 
-        self.m = m
-        self.Vn = Vn
+        self.Vtilde = []
 
-        self.verbose = verbose
-        self.remove = remove
-        self.greedy_basis = None
-        self.sel_crit = np.zeros(m)
+        self.BP = None
 
     def initial_choice(self):
         """ Different greedy methods will have their own maximising/minimising criteria, so all 
         inheritors of this class are expected to overwrite this method to suit their needs. """
-    
-        norms = np.zeros(len(self.dictionary))
+        
+        v0 = self.Vn.vecs[0]
+
+        dots = np.zeros(len(self.dictionary))
         for i in range(len(self.dictionary)):
-            for phi in self.Vn.vecs:
-                norms[i] += phi.dot(self.dictionary[i]) ** 2
+            dots[i] = v0.dot(self.dictionary[i])
 
-        n0 = np.argmax(norms)
+        n0 = np.argmax(dots)
+      
+        self.Vtilde.append(v0)
 
-        return n0, norms[n0]
+        return n0, dots[n0]
 
     def next_step_choice(self, i):
         """ Different greedy methods will have their own maximising/minimising criteria, so all 
         inheritors of this class are expected to overwrite this method to suit their needs. """
-
-        proj_t = 0.0
-        dot_t = 0.0
+        
         next_crit = np.zeros(len(self.dictionary))
         # We go through the dictionary and find the max of || f ||^2 - || P_Vn f ||^2
-        for phi in self.Vn.vecs:
-            phi_perp = phi - self.greedy_basis.project(phi)
-            for j in range(len(self.dictionary)):
-                next_crit[j] = phi_perp.dot(self.dictionary[j]) ** 2
-                #p_V_d[i] = self.greedy_basis.project(self.dictionary[i]).norm()
+        BP = BasisPair(self.greedy_basis.orthonormalise(), self.Vn)
+        FB = BP.make_favorable_basis()
+        
+        # This corresponds with vector with the smallest singular value from the SVD
+        v = FB.Vn.vecs[-1]
+
+        v_perp = v - self.greedy_basis.project(v)
+        for j in range(len(self.dictionary)):
+            next_crit[j] = abs(v_perp.dot(self.dictionary[j]))
         
         ni = np.argmax(next_crit)
+        self.greedy_basis.add_vector(self.dictionary[ni])
 
         if self.verbose:
             print('{0} : \t {1}'.format(i, next_crit[ni]))
 
         return ni, next_crit[ni]
-
 
