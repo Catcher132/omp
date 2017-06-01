@@ -11,17 +11,13 @@ Possibly will extend to 2 dimensions at some point.
 import math
 import numpy as np
 import scipy as sp
+from scipy.misc import factorial
 import collections
 
 from itertools import *
 import inspect
 import copy
 import time
-
-import seaborn as sns
-import matplotlib.pyplot as plt
-from matplotlib import cm 
-from mpl_toolkits.mplot3d import axes3d, Axes3D
 
 import pdb
 
@@ -48,9 +44,33 @@ def del_evaluate(x, x0):
   
 def poly_evaluate(x, k):
     # Normaliser - yes the H1_0 norm of x (x - 1) x^k
-    normaliser = 1.0 / (8.*k*k*k + 32.*k*k + 39.*k + 13.) / ((2.*k+1.)*(2.*k+3.))
+    return np.outer((x**(k+1) - x**(k+2)), poly_norm(k))
 
-    return np.outer((x**(k+1) - x**(k+2)), normaliser)
+def poly_norm(k):
+    return 1.0 / (8.*k*k*k + 32.*k*k + 39.*k + 13.) / ((2.*k+1.)*(2.*k+3.))
+
+def sin_poly_integral(m, k):
+    # Integral from 0 to 1 of x^k sin(m pi x)
+    # As usual done in the most horribly numpy way possible
+    
+    # add the new axis as we're making a 3D matrix which we later sum down
+    l = np.arange(0,(k[-1]+1)//2)[:,np.newaxis,np.newaxis]
+    m = m[:,np.newaxis]
+    
+    s = factorial(k) / factorial(k-2*l-1)
+    s[np.isinf(s)] = 0.0
+
+    d = -1.0 / (m * m * math.pi * math.pi)
+    
+    full = (-1)** m * s * (-d ** (l+1))
+    
+    # now add that last little bit
+    twid = factorial(k)
+    twid[1:-1:2] = 0.0 # Odd ones set to 0
+
+    twid = twid * (-d**((k+1)//2))
+    
+    return full.sum(axis=0) - twid
 
 def dot_element(lt, lp, lc, rt, rp, rc):
     dot = 0.0
@@ -69,17 +89,19 @@ def dot_element(lt, lp, lc, rt, rp, rc):
             c = 1.0 / np.sqrt(rp * (1.0 - rp))
             dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
         elif rt == 'H1poly':
-            # Uh oh
-            dot += 0.0
+            dot += 0.0 
     elif lt == 'H1poly':
         if rt == 'H1sin':
-            dot += (lc[:,np.newaxis] * rc * np.equal.outer(lp, rp)).sum()
+            dot += 0.0
         elif rt == 'H1delta':
             c = 1.0 / np.sqrt(rp * (1.0 - rp))
-            dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
+            dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * poly_evaluate(x = rp, freq = lp)).sum()
         elif rt == 'H1poly':
-            # Uh oh
-            dot += 0.0
+            l = lp[:, np.newaxis]
+            k = rp
+            dot += poly_norm(l) * poly_norm(k) * lc[:, np.newaxis] * rc * ((l + 1) * (k + 1) / (l + k + 1) \
+                   + ((l + 1) * (k + 1) + (l + 2) * (k + 1)) / (l + k + 2) \
+                   + (l + 2) * (k + 2) / (l + k + 3))
 
     return dot
 
