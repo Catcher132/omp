@@ -21,37 +21,43 @@ import time
 
 import pdb
 
-def sin_evaluate(x, freq):
+def sin_evaluate(x, m):
     # nb we allow both freq and x to be np arrays
-    # returns an array of size len(x) * len(freq)
-    return np.sin(math.pi * np.outer(x, freq)) * math.sqrt(2.0) / (math.pi * freq)
+    # returns an array of size len(x) * len(m)
+    return np.sin(math.pi * np.outer(x, m)) * sin_norm(m)
+
+def sin_norm(m):
+    return math.sqrt(2.0) / (math.pi * m)
 
 def del_evaluate(x, x0):
     # nb we allow both x0 and x to be np arrays
     # returns an array of size len(x) * len(x0)
-    normaliser =  1. / np.sqrt((1. - x0) * x0)
     
     # This is now a matrix of size len(x) * len(x0)
     choice = np.less.outer(x, x0) #np.array([x > x0ref for x0ref in x0])
 
-    lower = normaliser * np.outer(x, (1. - x0))
-    upper = normaliser * np.outer((1. - x), x0)
+    lower = del_norm(x0) * np.outer(x, (1. - x0))
+    upper = del_norm(x0) * np.outer((1. - x), x0)
     
     if np.isscalar(choice):
         return lower * choice + upper * (not choice)
 
     return lower * choice + upper * (~choice)
-  
+
+def del_norm(x0):
+    return 1. / np.sqrt((1. - x0) * x0)
+
 def poly_evaluate(x, k):
     # Normaliser - yes the H1_0 norm of x (x - 1) x^k
     return np.outer((x**(k+1) - x**(k+2)), poly_norm(k))
 
 def poly_norm(k):
-    return 1.0 / (8.*k*k*k + 32.*k*k + 39.*k + 13.) / ((2.*k+1.)*(2.*k+3.))
+    return  np.sqrt( (2.*k+1.) * (2.*k+3.) / (8.*k*k*k + 32.*k*k + 39.*k + 13.) )
 
 def sin_poly_integral(m, k):
     # Integral from 0 to 1 of x^k sin(m pi x)
     # As usual done in the most horribly numpy way possible
+    # The solution is a series that I've calculated...
     
     # add the new axis as we're making a 3D matrix which we later sum down
     l = np.arange(0,(k[-1]+1)//2)[:,np.newaxis,np.newaxis]
@@ -61,12 +67,12 @@ def sin_poly_integral(m, k):
     s[np.isinf(s)] = 0.0
 
     d = -1.0 / (m * m * math.pi * math.pi)
-    
+   
     full = (-1)** m * s * (-d ** (l+1))
     
     # now add that last little bit
     twid = factorial(k)
-    twid[1:-1:2] = 0.0 # Odd ones set to 0
+    twid[k % 2 == 0] = 0.0 # Even ones set to 0
 
     twid = twid * (-d**((k+1)//2))
     
@@ -75,27 +81,31 @@ def sin_poly_integral(m, k):
 def dot_element(lt, lp, lc, rt, rp, rc):
     dot = 0.0
     if lt == 'H1delta':
-        c = 1.0 / np.sqrt(lp * (1.0 - lp))
+        n = del_norm(lp) #1.0 / np.sqrt(lp * (1.0 - lp))
         if rt == 'H1sin':
-            dot += (c[:,np.newaxis] * lc[:,np.newaxis] * rc * sin_evaluate(x = lp, freq = rp)).sum()
+            dot += (n[:,np.newaxis] * lc[:,np.newaxis] * rc * sin_evaluate(x = lp, freq = rp)).sum()
         elif rt == 'H1delta':
-            dot += (c[:,np.newaxis] * lc[:,np.newaxis] * rc * del_evaluate(x = lp, x0 = rp)).sum()
+            dot += (n[:,np.newaxis] * lc[:,np.newaxis] * rc * del_evaluate(x = lp, x0 = rp)).sum()
         elif rt == 'H1poly':
-            dot +=  (c[:,np.newaxis] * lc[:,np.newaxis] * rc * poly_evaluate(x = lp, freq = rp)).sum()
+            dot +=  (n[:,np.newaxis] * lc[:,np.newaxis] * rc * poly_evaluate(x = lp, freq = rp)).sum()
     elif lt == 'H1sin':
         if rt == 'H1sin':
             dot += (lc[:,np.newaxis] * rc * np.equal.outer(lp, rp)).sum()
         elif rt == 'H1delta':
-            c = 1.0 / np.sqrt(rp * (1.0 - rp))
-            dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
+            n = del_norm(x0) #1.0 / np.sqrt(rp * (1.0 - rp))
+            dot += (n[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
         elif rt == 'H1poly':
-            dot += 0.0 
+            dot += (lc[:,np.newaxis] * rc * poly_norm(rp) * sin_norm(lp[:,np.newaxis]) \
+                  * ((rp + 1) * (lp[:,np.newaxis] * math.pi) * sin_poly_integral(lp, rp) \
+                  - (rp + 2) * (lp[:, np.newaxis] * math.pi) * sin_poly_integral(lp, rp+1))).sum()
     elif lt == 'H1poly':
         if rt == 'H1sin':
-            dot += 0.0
+            dot += (lc * rc[:,np.newaxis] * poly_norm(lp) * sin_norm(rp[:,np.newaxis]) \
+                   * ((lp + 1) * (rp[:,np.newaxis] * math.pi) * sin_poly_integral(rp, lp) \
+                   - (lp + 2) * (rp[:,np.newaxis] * math.pi) * sin_poly_integral(rp, lp+1))).sum()
         elif rt == 'H1delta':
-            c = 1.0 / np.sqrt(rp * (1.0 - rp))
-            dot += (c[:, np.newaxis] * lc * rc[:, np.newaxis] * poly_evaluate(x = rp, freq = lp)).sum()
+            n = 1.0 / np.sqrt(rp * (1.0 - rp))
+            dot += (n[:, np.newaxis] * lc * rc[:, np.newaxis] * poly_evaluate(x = rp, freq = lp)).sum()
         elif rt == 'H1poly':
             l = lp[:, np.newaxis]
             k = rp
