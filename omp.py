@@ -49,7 +49,7 @@ def del_norm(x0):
 
 def poly_evaluate(x, k):
     # Normaliser - yes the H1_0 norm of x (x - 1) x^k
-    return np.outer((x**(k+1) - x**(k+2)), poly_norm(k))
+    return (x[:,np.newaxis]**(k+1) - x[:,np.newaxis]**(k+2)) * poly_norm(k)
 
 def poly_norm(k):
     return  np.sqrt( (2.*k+1.) * (2.*k+3.) / (8.*k*k*k + 32.*k*k + 39.*k + 13.) )
@@ -83,17 +83,17 @@ def dot_element(lt, lp, lc, rt, rp, rc):
     if lt == 'H1delta':
         n = del_norm(lp) #1.0 / np.sqrt(lp * (1.0 - lp))
         if rt == 'H1sin':
-            dot += (n[:,np.newaxis] * lc[:,np.newaxis] * rc * sin_evaluate(x = lp, freq = rp)).sum()
+            dot += (n[:,np.newaxis] * lc[:,np.newaxis] * rc * sin_evaluate(x = lp, m = rp)).sum()
         elif rt == 'H1delta':
             dot += (n[:,np.newaxis] * lc[:,np.newaxis] * rc * del_evaluate(x = lp, x0 = rp)).sum()
         elif rt == 'H1poly':
-            dot +=  (n[:,np.newaxis] * lc[:,np.newaxis] * rc * poly_evaluate(x = lp, freq = rp)).sum()
+            dot +=  (n[:,np.newaxis] * lc[:,np.newaxis] * rc * poly_evaluate(x = lp, m = rp)).sum()
     elif lt == 'H1sin':
         if rt == 'H1sin':
             dot += (lc[:,np.newaxis] * rc * np.equal.outer(lp, rp)).sum()
         elif rt == 'H1delta':
-            n = del_norm(x0) #1.0 / np.sqrt(rp * (1.0 - rp))
-            dot += (n[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, freq = lp)).sum()
+            n = del_norm(rp) #1.0 / np.sqrt(rp * (1.0 - rp))
+            dot += (n[:, np.newaxis] * lc * rc[:, np.newaxis] * sin_evaluate(x = rp, m = lp)).sum()
         elif rt == 'H1poly':
             dot += (lc[:,np.newaxis] * rc * poly_norm(rp) * sin_norm(lp[:,np.newaxis]) \
                   * ((rp + 1) * (lp[:,np.newaxis] * math.pi) * sin_poly_integral(lp, rp) \
@@ -104,14 +104,14 @@ def dot_element(lt, lp, lc, rt, rp, rc):
                    * ((lp + 1) * (rp[:,np.newaxis] * math.pi) * sin_poly_integral(rp, lp) \
                    - (lp + 2) * (rp[:,np.newaxis] * math.pi) * sin_poly_integral(rp, lp+1))).sum()
         elif rt == 'H1delta':
-            n = 1.0 / np.sqrt(rp * (1.0 - rp))
-            dot += (n[:, np.newaxis] * lc * rc[:, np.newaxis] * poly_evaluate(x = rp, freq = lp)).sum()
+            n = del_norm(rp) #1.0 / np.sqrt(rp * (1.0 - rp))
+            dot += (n[:, np.newaxis] * lc * rc[:, np.newaxis] * poly_evaluate(x = rp, m = lp)).sum()
         elif rt == 'H1poly':
             l = lp[:, np.newaxis]
             k = rp
-            dot += poly_norm(l) * poly_norm(k) * lc[:, np.newaxis] * rc * ((l + 1) * (k + 1) / (l + k + 1) \
+            dot += (poly_norm(l) * poly_norm(k) * lc[:, np.newaxis] * rc * ((l + 1) * (k + 1) / (l + k + 1) \
                    + ((l + 1) * (k + 1) + (l + 2) * (k + 1)) / (l + k + 2) \
-                   + (l + 2) * (k + 2) / (l + k + 3))
+                   + (l + 2) * (k + 2) / (l + k + 3))).sum()
 
     return dot
 
@@ -170,16 +170,10 @@ class Vector(object):
         for fn_i, fn_type in enumerate(self.fn_types):
             if fn_type == 'H1sin':
                 val += (self.coeffs[fn_i] * sin_evaluate(x, self.params[fn_i])).sum(axis=-1)
-                #for p, c in zip(self.params[fn_i], self.coeffs[fn_i]):
-                #    val += c * sin_evaluate(x, p)
-                #for p_i in range(len(self.params[fn_i])):
-                #    val += self.coeffs[fn_i][p_i] * sin_evaluate(x, self.params[fn_i][p_i])
             if fn_type == 'H1delta':
                 val += (self.coeffs[fn_i] * del_evaluate(x, self.params[fn_i])).sum(axis=-1)
-                #for p, c in zip(self.params[fn_i], self.coeffs[fn_i]):
-                #    val += c * del_evaluate(x, p)
-                #for p_i in range(len(self.params[fn_i])):
-                #    val += self.coeffs[fn_i][p_i] * del_evaluate(x, self.params[fn_i][p_i])
+            if fn_type == 'H1poly':
+                val += (self.coeffs[fn_i] * poly_evaluate(x, self.params[fn_i])).sum(axis=-1)
         return val
 
 
