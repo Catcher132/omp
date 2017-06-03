@@ -52,7 +52,8 @@ def poly_evaluate(x, k):
     return (x[:,np.newaxis]**(k+1) - x[:,np.newaxis]**(k+2)) * poly_norm(k)
 
 def poly_norm(k):
-    return  np.sqrt( (2.*k+1.) * (2.*k+3.) / (8.*k*k*k + 32.*k*k + 39.*k + 13.) )
+    #return np.sqrt( (2.*k+1.) * (2.*k+3.) / (8.*k*k*k + 32.*k*k + 39.*k + 13.) )
+    return 1. / np.sqrt( (k+1.)*(k+1.) / (2.*k+1.) + 2.*(k+2.)*(k+1.) / (2.*k+2.) + (k+2.)*(k+2.) / (2.*k+3.) )
 
 def sin_poly_integral(m, k):
     # Integral from 0 to 1 of x^k sin(m pi x)
@@ -110,7 +111,7 @@ def dot_element(lt, lp, lc, rt, rp, rc):
             l = lp[:, np.newaxis]
             k = rp
             dot += (poly_norm(l) * poly_norm(k) * lc[:, np.newaxis] * rc * ((l + 1) * (k + 1) / (l + k + 1) \
-                   + ((l + 1) * (k + 1) + (l + 2) * (k + 1)) / (l + k + 2) \
+                   + ((l + 1) * (k + 2) + (l + 2) * (k + 1)) / (l + k + 2) \
                    + (l + 2) * (k + 2) / (l + k + 3))).sum()
 
     return dot
