@@ -735,9 +735,9 @@ class WorstCaseOMP(GreedyBasisConstructor):
             
         self.dictionary = copy.copy(dictionary)
 
-        self.Vtilde = []
-
         self.BP = None
+
+        self.Vtilde = []
 
     def initial_choice(self):
         """ Different greedy methods will have their own maximising/minimising criteria, so all 
@@ -772,7 +772,58 @@ class WorstCaseOMP(GreedyBasisConstructor):
             next_crit[j] = abs(v_perp.dot(self.dictionary[j]))
         
         ni = np.argmax(next_crit)
-        self.greedy_basis.add_vector(self.dictionary[ni])
+
+        self.Vtilde.append(v)
+
+        if self.verbose:
+            print('{0} : \t {1}'.format(i, next_crit[ni]))
+
+        return ni, next_crit[ni]
+
+class WorstVecOMP(GreedyBasisConstructor):
+    """ Now we look at the worst of the basis vectors instead of over the whole space.. hopefully easier to
+        analyse and prove, and faster to do... """
+
+    def __init__(self, m, dictionary, Vn, verbose=False, remove=True):
+        """ We need to be either given a dictionary or a point generator that produces d-dimensional points
+            from which we generate the dictionary. """
+        super().__init__(m, dictionary, Vn, verbose, remove)
+            
+        self.dictionary = copy.copy(dictionary)
+
+    def initial_choice(self):
+        """ Different greedy methods will have their own maximising/minimising criteria, so all 
+        inheritors of this class are expected to overwrite this method to suit their needs. """
+        
+        v0 = self.Vn.vecs[0]
+
+        dots = np.zeros(len(self.dictionary))
+        for i in range(len(self.dictionary)):
+            dots[i] = v0.dot(self.dictionary[i])
+
+        n0 = np.argmax(dots)
+      
+        return n0, dots[n0]
+
+    def next_step_choice(self, i):
+        """ Different greedy methods will have their own maximising/minimising criteria, so all 
+        inheritors of this class are expected to overwrite this method to suit their needs. """
+        
+        next_crit = np.zeros(len(self.dictionary))
+        
+        phi_perps = np.zeros(self.Vn.n)
+        # First we find the phi_j that has the largest phi_j - P_Wm phi_j
+        for j in range(self.Vn.n):
+            phi_perps[j] = (self.Vn.vecs[j] - self.greedy_basis.project(self.Vn.vecs[j])).norm()
+
+        # This corresponds with vector with the smallest singular value from the SVD
+        phi = self.Vn.vecs[phi_perps.argmin()]
+
+        phi_perp = phi - self.greedy_basis.project(phi)
+        for j in range(len(self.dictionary)):
+            next_crit[j] = abs(phi_perp.dot(self.dictionary[j]))
+        
+        ni = np.argmax(next_crit)
 
         if self.verbose:
             print('{0} : \t {1}'.format(i, next_crit[ni]))
